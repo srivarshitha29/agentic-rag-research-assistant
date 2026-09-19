@@ -1,0 +1,261 @@
+
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>AI Research Assistant</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='style.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+
+    <!-- ================================= -->
+    <!-- HEADER -->
+    <!-- ================================= -->
+
+    <h1>
+        🤖 AI Research Assistant
+    </h1>
+
+
+    <p style="text-align:center;">
+
+        Upload a PDF and have a conversation
+        about that PDF.
+
+    </p>
+
+
+    <!-- ================================= -->
+    <!-- PDF UPLOAD -->
+    <!-- ================================= -->
+
+    <div class="upload-section">
+
+        <h2>
+            📄 Upload PDF
+        </h2>
+
+
+        <form
+
+            method="POST"
+
+            action="{{ url_for('upload_file') }}"
+
+            enctype="multipart/form-data"
+
+        >
+
+            <input
+
+                type="file"
+
+                name="file"
+
+                accept=".pdf,application/pdf"
+
+                required
+
+            >
+
+
+            <br>
+            <br>
+
+
+            <button type="submit">
+
+                Upload PDF
+
+            </button>
+
+        </form>
+
+    </div>
+
+
+    <!-- ================================= -->
+    <!-- MESSAGE -->
+    <!-- ================================= -->
+
+    {% if message %}
+
+    <div class="message">
+
+        {{ message }}
+
+    </div>
+
+    {% endif %}
+
+
+    <!-- ================================= -->
+    <!-- CURRENT PDF -->
+    <!-- ================================= -->
+
+    {% if current_file %}
+
+    <div class="message">
+
+        <strong>
+            📂 Current PDF:
+        </strong>
+
+        {{ current_file }}
+
+    </div>
+
+    {% endif %}
+
+
+    <!-- ================================= -->
+    <!-- CHAT HISTORY -->
+    <!-- ================================= -->
+
+    {% if chat_history %}
+
+    <div class="chat-section">
+
+        <h2>
+            💬 Conversation
+        </h2>
+
+
+        {% for chat in chat_history %}
+
+        <div class="chat-message">
+
+            <div class="user-question">
+
+                <strong>
+                    👤 You:
+                </strong>
+
+                <p>
+                    {{ chat.question }}
+                </p>
+
+            </div>
+
+
+            <div class="assistant-answer">
+
+                <strong>
+                    🤖 Assistant:
+                </strong>
+
+                <div>
+
+                    {{ chat.answer | safe }}
+
+                </div>
+
+            </div>
+
+        </div>
+
+        {% endfor %}
+
+    </div>
+
+    {% endif %}
+
+
+    <!-- ================================= -->
+    <!-- QUESTION -->
+    <!-- ================================= -->
+
+    <div class="question-section">
+
+        <h2>
+            🔎 Ask a Question
+        </h2>
+
+
+        <form
+
+            method="POST"
+
+            action="{{ url_for('home') }}"
+
+        >
+
+            <input
+
+                type="text"
+
+                name="question"
+
+                placeholder="Ask a question about the uploaded PDF..."
+
+                required
+
+            >
+
+
+            <br>
+            <br>
+
+
+            <button type="submit">
+
+                Ask Question
+
+            </button>
+
+        </form>
+
+    </div>
+
+
+    <!-- ================================= -->
+    <!-- CLEAR CHAT -->
+    <!-- ================================= -->
+
+    {% if chat_history %}
+
+    <div style="text-align:center; margin-top:20px;">
+
+        <form
+            method="POST"
+            action="{{ url_for('clear_chat') }}"
+        >
+
+            <button type="submit">
+
+                🗑️ Clear Chat
+
+            </button>
+
+        </form>
+
+    </div>
+
+    {% endif %}
+
+
+</div>
+
+
+</body>
+
+</html>
+```
