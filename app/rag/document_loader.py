@@ -1,12 +1,15 @@
 from pathlib import Path
 
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pypdf import PdfReader
+from langchain_core.documents import Document
 
 
-def load_document(file_path):
+def load_and_split_document(file_path, chunk_size=800, chunk_overlap=100):
     """
-    Load only the PDF file provided by the user.
+    Load the uploaded PDF and split it into smaller chunks.
+
+    Uses lightweight pypdf instead of PyPDFLoader and a simple
+    Python-based splitter to reduce memory usage on Render.
     """
 
     file_path = Path(file_path)
@@ -19,45 +22,46 @@ def load_document(file_path):
 
     print(f"Loading uploaded file: {file_path.name}")
 
-    loader = PyPDFLoader(str(file_path))
-    documents = loader.load()
+    reader = PdfReader(str(file_path))
 
-    print(f"Loaded {len(documents)} pages from {file_path.name}")
+    chunks = []
 
-    return documents
+    for page_number, page in enumerate(reader.pages, start=1):
 
+        text = page.extract_text() or ""
 
-def split_documents(documents):
-    """
-    Split the uploaded document into smaller chunks.
-    """
+        # Clean unnecessary whitespace
+        text = " ".join(text.split())
 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,
-        chunk_overlap=200
-    )
+        if not text:
+            continue
 
-    chunks = text_splitter.split_documents(documents)
+        start = 0
+        text_length = len(text)
 
-    # Remove empty chunks
-    chunks = [
-        chunk
-        for chunk in chunks
-        if chunk.page_content.strip()
-    ]
+        while start < text_length:
 
+            end = min(start + chunk_size, text_length)
+
+            chunk_text = text[start:end].strip()
+
+            if chunk_text:
+                chunks.append(
+                    Document(
+                        page_content=chunk_text,
+                        metadata={
+                            "source": str(file_path),
+                            "page": page_number
+                        }
+                    )
+                )
+
+            if end >= text_length:
+                break
+
+            start = max(0, end - chunk_overlap)
+
+    print(f"Loaded {len(reader.pages)} pages from {file_path.name}")
     print(f"Created {len(chunks)} chunks.")
-
-    return chunks
-
-
-def load_and_split_document(file_path):
-    """
-    Load and split ONLY the uploaded PDF.
-    """
-
-    documents = load_document(file_path)
-
-    chunks = split_documents(documents)
 
     return chunks
