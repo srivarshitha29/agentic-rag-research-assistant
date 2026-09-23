@@ -12,6 +12,11 @@ from markdown import markdown as convert_markdown
 # ==========================================
 
 app = Flask(__name__)
+app = Flask(__name__)
+
+@app.route("/health", methods=["GET"])
+def health():
+    return "OK", 200
 
 # Use Render environment variable in production.
 # Local fallback is provided for development.
@@ -551,19 +556,6 @@ def clear_chat():
         chat_history=[]
 
     )
-
-
-# ==========================================
-# HEALTH CHECK
-# ==========================================
-
-@app.route("/health", methods=["GET"])
-def health():
-
-    return {
-        "status": "healthy",
-        "application": "AI Research Assistant"
-    }, 200
 
 
 # ==========================================
