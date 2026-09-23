@@ -1,3 +1,4 @@
+
 from pathlib import Path
 import hashlib
 
@@ -15,6 +16,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 CHROMA_DIR = BASE_DIR / "models" / "chroma_db"
 
+# Make sure the directory exists
+CHROMA_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # ==========================================
 # CURRENT ACTIVE COLLECTION
@@ -24,14 +28,38 @@ ACTIVE_COLLECTION = None
 
 
 # ==========================================
-# EMBEDDING MODEL
+# CACHE EMBEDDING MODEL
 # ==========================================
 
-def get_embeddings():
+_embeddings = None
 
-    return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
-    )
+
+def get_embeddings():
+    """
+    Load the embedding model only once.
+
+    This prevents a new Sentence Transformer
+    model from being loaded every time a
+    retriever is requested.
+    """
+
+    global _embeddings
+
+    if _embeddings is None:
+
+        print("\nLoading embedding model...")
+
+        _embeddings = HuggingFaceEmbeddings(
+            model_name="sentence-transformers/all-MiniLM-L6-v2",
+            encode_kwargs={
+                "normalize_embeddings": True,
+                "batch_size": 8
+            }
+        )
+
+        print("Embedding model loaded.")
+
+    return _embeddings
 
 
 # ==========================================
@@ -72,9 +100,7 @@ def create_vector_database(file_path):
     print("PROCESSING UPLOADED PDF")
     print("======================================")
 
-    print(
-        f"PDF: {file_path.name}"
-    )
+    print(f"PDF: {file_path.name}")
 
     # --------------------------------------
     # Check file
@@ -94,28 +120,19 @@ def create_vector_database(file_path):
 
     # --------------------------------------
     # Create unique collection
-    # based on PDF CONTENT
     # --------------------------------------
 
-    file_hash = get_file_hash(
-        file_path
-    )
+    file_hash = get_file_hash(file_path)
 
-    collection_name = (
-        f"pdf_{file_hash}"
-    )
+    collection_name = f"pdf_{file_hash}"
 
-    print(
-        f"Collection: {collection_name}"
-    )
+    print(f"Collection: {collection_name}")
 
     # --------------------------------------
     # Load ONLY this PDF
     # --------------------------------------
 
-    print(
-        "\nReading uploaded PDF..."
-    )
+    print("\nReading uploaded PDF...")
 
     chunks = load_and_split_document(
         str(file_path)
@@ -129,42 +146,79 @@ def create_vector_database(file_path):
 
         return None
 
-    print(
-        f"Created {len(chunks)} chunks."
+    print(f"Created {len(chunks)} chunks.")
+
+    # --------------------------------------
+    # Check whether collection already exists
+    # --------------------------------------
+
+    print("\nChecking existing vector database...")
+
+    embeddings = get_embeddings()
+
+    vector_store = Chroma(
+        collection_name=collection_name,
+        persist_directory=str(CHROMA_DIR),
+        embedding_function=embeddings
     )
+
+    existing_count = vector_store._collection.count()
+
+    print(
+        f"Existing vectors: {existing_count}"
+    )
+
+    # --------------------------------------
+    # Avoid rebuilding the same PDF
+    # --------------------------------------
+
+    if existing_count > 0:
+
+        print(
+            "\nPDF already exists in ChromaDB."
+        )
+
+        ACTIVE_COLLECTION = collection_name
+
+        print(
+            f"Using existing collection: "
+            f"{ACTIVE_COLLECTION}"
+        )
+
+        return vector_store
 
     # --------------------------------------
     # Create embeddings
     # --------------------------------------
 
-    print(
-        "\nCreating embeddings..."
-    )
+    print("\nCreating embeddings...")
 
-    embeddings = get_embeddings()
+    # Process documents in smaller batches
+    batch_size = 16
+
+    for start in range(
+        0,
+        len(chunks),
+        batch_size
+    ):
+
+        batch = chunks[
+            start:start + batch_size
+        ]
+
+        print(
+            f"Processing chunks "
+            f"{start + 1}-"
+            f"{min(start + batch_size, len(chunks))}"
+            f" of {len(chunks)}"
+        )
+
+        vector_store.add_documents(
+            batch
+        )
 
     # --------------------------------------
-    # Create vector database
-    # --------------------------------------
-
-    print(
-        "\nCreating vector database..."
-    )
-
-    vector_store = Chroma.from_documents(
-
-        documents=chunks,
-
-        embedding=embeddings,
-
-        collection_name=collection_name,
-
-        persist_directory=str(CHROMA_DIR)
-    )
-
-    # --------------------------------------
-    # VERY IMPORTANT
-    # Set this PDF as ACTIVE
+    # Set active collection
     # --------------------------------------
 
     ACTIVE_COLLECTION = collection_name
@@ -173,9 +227,7 @@ def create_vector_database(file_path):
     print("ACTIVE PDF UPDATED")
     print("======================================")
 
-    print(
-        f"PDF: {file_path.name}"
-    )
+    print(f"PDF: {file_path.name}")
 
     print(
         f"Collection: {ACTIVE_COLLECTION}"
@@ -210,13 +262,9 @@ def get_retriever(file_path=None):
             "No PDF has been uploaded yet."
         )
 
-    print(
-        "\n======================================"
-    )
-
-    print(
-        "LOADING ACTIVE PDF RETRIEVER"
-    )
+    print("\n======================================")
+    print("LOADING ACTIVE PDF RETRIEVER")
+    print("======================================")
 
     print(
         f"Collection: {ACTIVE_COLLECTION}"
