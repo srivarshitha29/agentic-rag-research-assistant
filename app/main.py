@@ -1,3 +1,4 @@
+
 import os
 from pathlib import Path
 
@@ -5,26 +6,24 @@ from flask import Flask, render_template, request, session
 from werkzeug.utils import secure_filename
 from markdown import markdown as convert_markdown
 
-from app.agents.research_agent import research_answer
-from app.rag.retriever import create_vector_database
 
-
-# ============================================================
-# FLASK APPLICATION
-# ============================================================
+# ==========================================
+# FLASK APP
+# ==========================================
 
 app = Flask(__name__)
 
-# Secret key
+# Use Render environment variable in production.
+# Local fallback is provided for development.
 app.secret_key = os.environ.get(
     "FLASK_SECRET_KEY",
     "ai-research-assistant-secret-key"
 )
 
 
-# ============================================================
+# ==========================================
 # PROJECT PATHS
-# ============================================================
+# ==========================================
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -36,23 +35,21 @@ DOCUMENTS_DIR.mkdir(
 )
 
 
-# ============================================================
-# CURRENT PDF
-# ============================================================
+# ==========================================
+# CURRENT UPLOADED PDF
+# ==========================================
 
 current_file_path = None
 
 
-# ============================================================
-# ALLOWED FILE TYPES
-# ============================================================
+# ==========================================
+# ALLOWED FILE TYPE
+# ==========================================
 
 ALLOWED_EXTENSIONS = {"pdf"}
 
 
 def allowed_file(filename):
-    """Check whether the uploaded file is a PDF."""
-
     return (
         bool(filename)
         and "." in filename
@@ -61,9 +58,9 @@ def allowed_file(filename):
     )
 
 
-# ============================================================
+# ==========================================
 # HOME PAGE
-# ============================================================
+# ==========================================
 
 @app.route("/", methods=["GET", "POST"])
 def home():
@@ -73,9 +70,9 @@ def home():
     answer = ""
     message = ""
 
-    # --------------------------------------------------------
+    # --------------------------------------
     # GET CHAT HISTORY
-    # --------------------------------------------------------
+    # --------------------------------------
 
     chat_history = session.get(
         "chat_history",
@@ -85,20 +82,12 @@ def home():
     print("\n========================================")
     print("HOME REQUEST")
     print("========================================")
+    print("CURRENT FILE:", current_file_path)
+    print("CHAT HISTORY LENGTH:", len(chat_history))
 
-    print(
-        "CURRENT FILE:",
-        current_file_path
-    )
-
-    print(
-        "CHAT HISTORY LENGTH:",
-        len(chat_history)
-    )
-
-    # ========================================================
+    # ======================================
     # QUESTION SUBMISSION
-    # ========================================================
+    # ======================================
 
     if request.method == "POST":
 
@@ -107,14 +96,11 @@ def home():
             ""
         ).strip()
 
-        print(
-            "QUESTION:",
-            question
-        )
+        print("QUESTION:", question)
 
-        # ----------------------------------------------------
+        # ----------------------------------
         # CHECK PDF
-        # ----------------------------------------------------
+        # ----------------------------------
 
         if current_file_path is None:
 
@@ -122,9 +108,9 @@ def home():
                 "Please upload a PDF file first."
             )
 
-        # ----------------------------------------------------
+        # ----------------------------------
         # CHECK QUESTION
-        # ----------------------------------------------------
+        # ----------------------------------
 
         elif not question:
 
@@ -136,13 +122,26 @@ def home():
 
             try:
 
+                # ==================================
+                # LAZY IMPORT
+                # ==================================
+                # Heavy RAG/ML libraries are loaded
+                # only when the user asks a question.
+                #
+                # This reduces Render startup memory.
+                # ==================================
+
+                from app.agents.research_agent import (
+                    research_answer
+                )
+
                 print(
                     "\nGenerating answer..."
                 )
 
-                # ------------------------------------------------
-                # GENERATE ANSWER
-                # ------------------------------------------------
+                # ----------------------------------
+                # SEND QUESTION + HISTORY
+                # ----------------------------------
 
                 answer = research_answer(
                     question,
@@ -150,9 +149,9 @@ def home():
                     chat_history
                 )
 
-                # ------------------------------------------------
-                # SAVE CHAT HISTORY
-                # ------------------------------------------------
+                # ----------------------------------
+                # SAVE CONVERSATION
+                # ----------------------------------
 
                 chat_history.append(
                     {
@@ -161,17 +160,15 @@ def home():
                     }
                 )
 
-                # Keep only latest 10 conversations
+                # Keep latest 10 conversations
                 chat_history = chat_history[-10:]
 
                 session["chat_history"] = chat_history
-
-                # Make session data persistent
                 session.modified = True
 
-                # ------------------------------------------------
+                # ----------------------------------
                 # CONVERT MARKDOWN TO HTML
-                # ------------------------------------------------
+                # ----------------------------------
 
                 answer = convert_markdown(
                     answer,
@@ -197,11 +194,12 @@ def home():
                     + str(e)
                 )
 
-    # ========================================================
-    # RENDER PAGE
-    # ========================================================
+    # ======================================
+    # RETURN HOME PAGE
+    # ======================================
 
     return render_template(
+
         "index.html",
 
         answer=answer,
@@ -215,33 +213,41 @@ def home():
         ),
 
         chat_history=chat_history
+
     )
 
 
-# ============================================================
+# ==========================================
 # PDF UPLOAD
-# ============================================================
+# ==========================================
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
 
     global current_file_path
 
-    print("\n========================================")
-    print("PDF UPLOAD REQUEST")
-    print("========================================")
+    print(
+        "\n========================================"
+    )
 
-    # --------------------------------------------------------
-    # RESET CHAT FOR NEW PDF
-    # --------------------------------------------------------
+    print(
+        "PDF UPLOAD REQUEST"
+    )
+
+    print(
+        "========================================"
+    )
+
+    # --------------------------------------
+    # RESET CHAT HISTORY
+    # --------------------------------------
 
     session["chat_history"] = []
-
     session.modified = True
 
-    # --------------------------------------------------------
+    # --------------------------------------
     # CHECK FILE FIELD
-    # --------------------------------------------------------
+    # --------------------------------------
 
     if "file" not in request.files:
 
@@ -250,6 +256,7 @@ def upload_file():
         )
 
         return render_template(
+
             "index.html",
 
             answer="",
@@ -259,11 +266,12 @@ def upload_file():
             current_file=None,
 
             chat_history=[]
+
         )
 
-    # --------------------------------------------------------
+    # --------------------------------------
     # GET FILE
-    # --------------------------------------------------------
+    # --------------------------------------
 
     file = request.files["file"]
 
@@ -272,9 +280,9 @@ def upload_file():
         file.filename
     )
 
-    # --------------------------------------------------------
+    # --------------------------------------
     # CHECK EMPTY FILE
-    # --------------------------------------------------------
+    # --------------------------------------
 
     if not file.filename:
 
@@ -283,6 +291,7 @@ def upload_file():
         )
 
         return render_template(
+
             "index.html",
 
             answer="",
@@ -292,11 +301,12 @@ def upload_file():
             current_file=None,
 
             chat_history=[]
+
         )
 
-    # --------------------------------------------------------
-    # CHECK FILE TYPE
-    # --------------------------------------------------------
+    # --------------------------------------
+    # CHECK PDF
+    # --------------------------------------
 
     if not allowed_file(file.filename):
 
@@ -305,6 +315,7 @@ def upload_file():
         )
 
         return render_template(
+
             "index.html",
 
             answer="",
@@ -314,11 +325,12 @@ def upload_file():
             current_file=None,
 
             chat_history=[]
+
         )
 
-    # --------------------------------------------------------
+    # --------------------------------------
     # SECURE FILE NAME
-    # --------------------------------------------------------
+    # --------------------------------------
 
     filename = secure_filename(
         file.filename
@@ -331,6 +343,7 @@ def upload_file():
         )
 
         return render_template(
+
             "index.html",
 
             answer="",
@@ -340,11 +353,12 @@ def upload_file():
             current_file=None,
 
             chat_history=[]
+
         )
 
-    # --------------------------------------------------------
-    # CREATE FILE PATH
-    # --------------------------------------------------------
+    # --------------------------------------
+    # FILE PATH
+    # --------------------------------------
 
     file_path = DOCUMENTS_DIR / filename
 
@@ -353,11 +367,15 @@ def upload_file():
         file_path
     )
 
+    # ======================================
+    # SAVE + PROCESS PDF
+    # ======================================
+
     try:
 
-        # ----------------------------------------------------
+        # ----------------------------------
         # SAVE PDF
-        # ----------------------------------------------------
+        # ----------------------------------
 
         file.save(file_path)
 
@@ -365,9 +383,21 @@ def upload_file():
             "PDF saved successfully."
         )
 
-        # ----------------------------------------------------
+        # ==================================
+        # LAZY IMPORT
+        # ==================================
+        # ChromaDB + Sentence Transformers
+        # are loaded only when a PDF is
+        # actually uploaded.
+        # ==================================
+
+        from app.rag.retriever import (
+            create_vector_database
+        )
+
+        # ----------------------------------
         # CREATE VECTOR DATABASE
-        # ----------------------------------------------------
+        # ----------------------------------
 
         print(
             "\nProcessing uploaded PDF..."
@@ -381,9 +411,9 @@ def upload_file():
             "Vector database created successfully."
         )
 
-        # ----------------------------------------------------
+        # ----------------------------------
         # SET CURRENT PDF
-        # ----------------------------------------------------
+        # ----------------------------------
 
         current_file_path = str(
             file_path
@@ -397,14 +427,16 @@ def upload_file():
             current_file_path
         )
 
-        # ----------------------------------------------------
+        # ----------------------------------
         # SUCCESS MESSAGE
-        # ----------------------------------------------------
+        # ----------------------------------
 
         message = (
-            f"PDF uploaded successfully: {filename}. "
-            "Chat history has been reset. "
-            "You can now ask questions about this PDF."
+            f"PDF uploaded successfully: "
+            f"{filename}. "
+            f"Chat history has been reset. "
+            f"You can now ask questions "
+            f"about this PDF."
         )
 
         print(
@@ -412,6 +444,7 @@ def upload_file():
         )
 
         return render_template(
+
             "index.html",
 
             answer="",
@@ -421,6 +454,7 @@ def upload_file():
             current_file=filename,
 
             chat_history=[]
+
         )
 
     except Exception as e:
@@ -433,9 +467,9 @@ def upload_file():
             repr(e)
         )
 
-        # ----------------------------------------------------
-        # REMOVE PARTIALLY SAVED FILE
-        # ----------------------------------------------------
+        # ----------------------------------
+        # REMOVE FAILED UPLOAD
+        # ----------------------------------
 
         try:
 
@@ -455,6 +489,7 @@ def upload_file():
         )
 
         return render_template(
+
             "index.html",
 
             answer="",
@@ -464,19 +499,20 @@ def upload_file():
             current_file=None,
 
             chat_history=[]
+
         )
 
 
-# ============================================================
+# ==========================================
 # CLEAR CHAT
-# ============================================================
+# ==========================================
 
 @app.route("/clear-chat", methods=["POST"])
 def clear_chat():
 
-    # --------------------------------------------------------
-    # CLEAR SESSION CHAT
-    # --------------------------------------------------------
+    # --------------------------------------
+    # CLEAR SESSION HISTORY
+    # --------------------------------------
 
     session["chat_history"] = []
 
@@ -486,32 +522,40 @@ def clear_chat():
         "\nCHAT HISTORY CLEARED"
     )
 
-    # --------------------------------------------------------
+    # --------------------------------------
     # KEEP CURRENT PDF
-    # --------------------------------------------------------
+    # --------------------------------------
 
     current_file = (
+
         Path(current_file_path).name
+
         if current_file_path
+
         else None
+
     )
 
     return render_template(
+
         "index.html",
 
         answer="",
 
-        message="Chat history cleared successfully.",
+        message=(
+            "Chat history cleared successfully."
+        ),
 
         current_file=current_file,
 
         chat_history=[]
+
     )
 
 
-# ============================================================
+# ==========================================
 # HEALTH CHECK
-# ============================================================
+# ==========================================
 
 @app.route("/health", methods=["GET"])
 def health():
@@ -522,14 +566,15 @@ def health():
     }, 200
 
 
-# ============================================================
-# ERROR HANDLERS
-# ============================================================
+# ==========================================
+# 404 ERROR HANDLER
+# ==========================================
 
 @app.errorhandler(404)
 def page_not_found(error):
 
     return render_template(
+
         "index.html",
 
         answer="",
@@ -537,17 +582,26 @@ def page_not_found(error):
         message="Page not found.",
 
         current_file=(
+
             Path(current_file_path).name
+
             if current_file_path
+
             else None
+
         ),
 
         chat_history=session.get(
             "chat_history",
             []
         )
+
     ), 404
 
+
+# ==========================================
+# 500 ERROR HANDLER
+# ==========================================
 
 @app.errorhandler(500)
 def internal_server_error(error):
@@ -561,28 +615,36 @@ def internal_server_error(error):
     )
 
     return render_template(
+
         "index.html",
 
         answer="",
 
-        message="An internal server error occurred.",
+        message=(
+            "An internal server error occurred."
+        ),
 
         current_file=(
+
             Path(current_file_path).name
+
             if current_file_path
+
             else None
+
         ),
 
         chat_history=session.get(
             "chat_history",
             []
         )
+
     ), 500
 
 
-# ============================================================
-# APPLICATION START
-# ============================================================
+# ==========================================
+# LOCAL DEVELOPMENT
+# ==========================================
 
 if __name__ == "__main__":
 
@@ -594,7 +656,12 @@ if __name__ == "__main__":
     )
 
     app.run(
+
         host="0.0.0.0",
+
         port=port,
+
         debug=False
+
     )
+
