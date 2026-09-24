@@ -1,9 +1,10 @@
-
 from pathlib import Path
 import hashlib
 
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
+from langchain_core.embeddings import Embeddings
+
+from sklearn.feature_extraction.text import HashingVectorizer
 
 from app.rag.document_loader import load_and_split_document
 
@@ -16,7 +17,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 CHROMA_DIR = BASE_DIR / "models" / "chroma_db"
 
-# Make sure the directory exists
 CHROMA_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -28,36 +28,58 @@ ACTIVE_COLLECTION = None
 
 
 # ==========================================
-# CACHE EMBEDDING MODEL
+# LIGHTWEIGHT LOCAL EMBEDDINGS
+# ==========================================
+
+class LocalEmbeddings(Embeddings):
+
+    def __init__(self):
+
+        # HashingVectorizer does not need a trained model.
+        # It is lightweight and uses fixed-size vectors.
+
+        self.vectorizer = HashingVectorizer(
+            n_features=384,
+            alternate_sign=False,
+            norm="l2",
+            lowercase=True,
+            ngram_range=(1, 2)
+        )
+
+    def embed_documents(self, texts):
+
+        if not texts:
+            return []
+
+        vectors = self.vectorizer.transform(texts)
+
+        return vectors.toarray().tolist()
+
+    def embed_query(self, text):
+
+        vector = self.vectorizer.transform([text])
+
+        return vector.toarray()[0].tolist()
+
+
+# ==========================================
+# SINGLE EMBEDDING INSTANCE
 # ==========================================
 
 _embeddings = None
 
 
 def get_embeddings():
-    """
-    Load the embedding model only once.
-
-    This prevents a new Sentence Transformer
-    model from being loaded every time a
-    retriever is requested.
-    """
 
     global _embeddings
 
     if _embeddings is None:
 
-        print("\nLoading embedding model...")
+        print("\nLoading lightweight local embeddings...")
 
-        _embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            encode_kwargs={
-                "normalize_embeddings": True,
-                "batch_size": 8
-            }
-        )
+        _embeddings = LocalEmbeddings()
 
-        print("Embedding model loaded.")
+        print("Local embeddings ready.")
 
     return _embeddings
 
@@ -103,7 +125,7 @@ def create_vector_database(file_path):
     print(f"PDF: {file_path.name}")
 
     # --------------------------------------
-    # Check file
+    # Validate file
     # --------------------------------------
 
     if not file_path.exists():
@@ -119,17 +141,21 @@ def create_vector_database(file_path):
         return None
 
     # --------------------------------------
-    # Create unique collection
+    # Unique collection
     # --------------------------------------
 
     file_hash = get_file_hash(file_path)
 
-    collection_name = f"pdf_{file_hash}"
+    # IMPORTANT:
+    # local_v1 prevents mixing old Gemini
+    # embeddings with the new local embeddings.
+
+    collection_name = f"pdf_local_v1_{file_hash}"
 
     print(f"Collection: {collection_name}")
 
     # --------------------------------------
-    # Load ONLY this PDF
+    # Load PDF
     # --------------------------------------
 
     print("\nReading uploaded PDF...")
@@ -141,20 +167,32 @@ def create_vector_database(file_path):
     if not chunks:
 
         print(
-            "No text could be extracted from this PDF."
+            "\nNo readable text was found in this PDF."
+        )
+
+        print(
+            "OCR will be required for scanned/image PDFs."
         )
 
         return None
 
-    print(f"Created {len(chunks)} chunks.")
+    print(
+        f"Created {len(chunks)} chunks."
+    )
 
     # --------------------------------------
-    # Check whether collection already exists
+    # Local embeddings
     # --------------------------------------
-
-    print("\nChecking existing vector database...")
 
     embeddings = get_embeddings()
+
+    # --------------------------------------
+    # Existing Chroma collection
+    # --------------------------------------
+
+    print(
+        "\nChecking existing vector database..."
+    )
 
     vector_store = Chroma(
         collection_name=collection_name,
@@ -169,7 +207,7 @@ def create_vector_database(file_path):
     )
 
     # --------------------------------------
-    # Avoid rebuilding the same PDF
+    # Already processed
     # --------------------------------------
 
     if existing_count > 0:
@@ -181,8 +219,7 @@ def create_vector_database(file_path):
         ACTIVE_COLLECTION = collection_name
 
         print(
-            f"Using existing collection: "
-            f"{ACTIVE_COLLECTION}"
+            f"Active collection: {ACTIVE_COLLECTION}"
         )
 
         return vector_store
@@ -191,10 +228,11 @@ def create_vector_database(file_path):
     # Create embeddings
     # --------------------------------------
 
-    print("\nCreating embeddings...")
+    print(
+        "\nCreating local embeddings..."
+    )
 
-    # Process documents in smaller batches
-    batch_size = 16
+    batch_size = 32
 
     for start in range(
         0,
@@ -213,12 +251,10 @@ def create_vector_database(file_path):
             f" of {len(chunks)}"
         )
 
-        vector_store.add_documents(
-            batch
-        )
+        vector_store.add_documents(batch)
 
     # --------------------------------------
-    # Set active collection
+    # Activate collection
     # --------------------------------------
 
     ACTIVE_COLLECTION = collection_name
@@ -227,7 +263,9 @@ def create_vector_database(file_path):
     print("ACTIVE PDF UPDATED")
     print("======================================")
 
-    print(f"PDF: {file_path.name}")
+    print(
+        f"PDF: {file_path.name}"
+    )
 
     print(
         f"Collection: {ACTIVE_COLLECTION}"
@@ -235,6 +273,10 @@ def create_vector_database(file_path):
 
     print(
         f"Chunks: {len(chunks)}"
+    )
+
+    print(
+        "Embedding method: Local HashingVectorizer"
     )
 
     print(
@@ -252,10 +294,6 @@ def get_retriever(file_path=None):
 
     global ACTIVE_COLLECTION
 
-    # --------------------------------------
-    # Make sure a PDF has been uploaded
-    # --------------------------------------
-
     if ACTIVE_COLLECTION is None:
 
         raise ValueError(
@@ -270,27 +308,18 @@ def get_retriever(file_path=None):
         f"Collection: {ACTIVE_COLLECTION}"
     )
 
-    print(
-        "======================================"
-    )
-
     embeddings = get_embeddings()
 
     vector_store = Chroma(
-
         collection_name=ACTIVE_COLLECTION,
-
         persist_directory=str(CHROMA_DIR),
-
         embedding_function=embeddings
     )
 
     retriever = vector_store.as_retriever(
-
         search_kwargs={
             "k": 5
         }
-
     )
 
     return retriever

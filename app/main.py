@@ -14,7 +14,7 @@ from markdown import markdown as convert_markdown
 app = Flask(__name__)
 app = Flask(__name__)
 
-@app.route("/health", methods=["GET"])
+@app.route("/health")
 def health():
     return "OK", 200
 
