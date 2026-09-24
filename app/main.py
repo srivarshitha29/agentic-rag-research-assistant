@@ -12,18 +12,23 @@ from markdown import markdown as convert_markdown
 # ==========================================
 
 app = Flask(__name__)
-app = Flask(__name__)
 
-@app.route("/health")
-def health():
-    return "OK", 200
-
-# Use Render environment variable in production.
+# Secret key is required for Flask sessions.
+# Render environment variable is preferred.
 # Local fallback is provided for development.
 app.secret_key = os.environ.get(
     "FLASK_SECRET_KEY",
     "ai-research-assistant-secret-key"
 )
+
+
+# ==========================================
+# HEALTH CHECK
+# ==========================================
+
+@app.route("/health", methods=["GET"])
+def health():
+    return "OK", 200
 
 
 # ==========================================
@@ -130,10 +135,8 @@ def home():
                 # ==================================
                 # LAZY IMPORT
                 # ==================================
-                # Heavy RAG/ML libraries are loaded
-                # only when the user asks a question.
-                #
-                # This reduces Render startup memory.
+                # Heavy RAG libraries are loaded
+                # only when a question is asked.
                 # ==================================
 
                 from app.agents.research_agent import (
@@ -165,7 +168,7 @@ def home():
                     }
                 )
 
-                # Keep latest 10 conversations
+                # Keep latest 10 conversations.
                 chat_history = chat_history[-10:]
 
                 session["chat_history"] = chat_history
@@ -391,7 +394,7 @@ def upload_file():
         # ==================================
         # LAZY IMPORT
         # ==================================
-        # ChromaDB + Sentence Transformers
+        # ChromaDB and embedding components
         # are loaded only when a PDF is
         # actually uploaded.
         # ==================================
@@ -408,9 +411,42 @@ def upload_file():
             "\nProcessing uploaded PDF..."
         )
 
-        create_vector_database(
+        vector_store = create_vector_database(
             str(file_path)
         )
+
+        # ----------------------------------
+        # CHECK VECTOR DATABASE RESULT
+        # ----------------------------------
+
+        if vector_store is None:
+
+            print(
+                "\nPDF processing failed."
+            )
+
+            current_file_path = None
+
+            message = (
+                "The PDF was uploaded, but no readable "
+                "text could be extracted. "
+                "If this is a scanned/image PDF, "
+                "OCR is required."
+            )
+
+            return render_template(
+
+                "index.html",
+
+                answer="",
+
+                message=message,
+
+                current_file=None,
+
+                chat_history=[]
+
+            )
 
         print(
             "Vector database created successfully."
@@ -656,4 +692,3 @@ if __name__ == "__main__":
         debug=False
 
     )
-
